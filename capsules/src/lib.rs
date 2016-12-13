@@ -12,7 +12,7 @@ pub mod led;
 pub mod nrf51822_serialization;
 pub mod timer;
 pub mod tmp006;
-pub mod sd_card;
+pub mod sdcard;
 pub mod si7021;
 pub mod spi;
 pub mod virtual_alarm;
