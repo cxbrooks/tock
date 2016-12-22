@@ -34,6 +34,7 @@ CPPFLAGS += \
 	    -msingle-pic-base\
 	    -mpic-register=r9\
 	    -mno-pic-data-is-text-relative
+OBJDUMP_FLAGS += --disassemble-all --source --disassembler-options=force-thumb -C --section-headers
 
 # First step doesn't actually compile, just generate header dependency information
 # More info on our approach here: http://stackoverflow.com/questions/97338
@@ -46,6 +47,7 @@ $(BUILDDIR)/%.o: %.c | $(BUILDDIR)
 LINKER ?= $(TOCK_USERLAND_BASE_DIR)/linker.ld
 
 SIZE := $(TOOLCHAIN)-size
+OBJDUMP := $(TOOLCHAIN)-objdump
 
 .PHONY:	all
 all:	$(BUILDDIR)/app.bin size
@@ -53,6 +55,11 @@ all:	$(BUILDDIR)/app.bin size
 .PHONY: size
 size:	$(BUILDDIR)/app.elf
 	@$(SIZE) $<
+
+.PHONY: debug
+debug: $(BUILDDIR)/app.elf
+	$(TRACE_LST)
+	$(Q)$(OBJDUMP) $(OBJDUMP_FLAGS) $< > $(BUILDDIR)/app.lst
 
 # Include the libtock makefile. Adds rules that will rebuild library when needed
 include $(TOCK_USERLAND_BASE_DIR)/libtock/Makefile
