@@ -11,7 +11,7 @@ OBJS += $(patsubst %.c,$(BUILDDIR)/%.o,$(C_SRCS))
 
 CPPFLAGS += -DSTACK_SIZE=2048
 
-PKG_NAME = C_HELLO
+PACKAGE_NAME = C_HELLO
 
 # include userland master makefile. Contains rules and flags for actually
 # 	building the application
