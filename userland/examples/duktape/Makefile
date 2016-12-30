@@ -9,7 +9,7 @@ BUILDDIR ?= $(abspath build/$(TOCK_ARCH))
 C_SRCS := $(wildcard *.c)
 OBJS += $(patsubst %.c,$(BUILDDIR)/%.o,$(C_SRCS))
 
-TINY_EDUK_FLAGS = -DDUK_OPT_NO_FILE_IO -DDUK_OPT_LIGHTFUNC_BUILTINS -DDUK_OPT_BUFLEN16 -DDUK_OPT_OBJSIZES16 -DDUK_OPT_REFCOUNT16 -DDUK_OPT_STRHASH16 -DDUK_OPT_STRLEN16 -DDUK_OPT_SELF_TESTS
+TINY_EDUK_FLAGS = -DDUK_OPT_NO_FILE_IO -DDUK_OPT_LIGHTFUNC_BUILTINS -DDUK_OPT_BUFLEN16 -DDUK_OPT_OBJSIZES16 -DDUK_OPT_REFCOUNT16 -DDUK_OPT_STRHASH16 -DDUK_OPT_STRLEN16 -DDUK_OPT_SELF_TESTS -DDUK_OPT_SEGFAULT_ON_PANIC
 
 CPPFLAGS += -DSTACK_SIZE=2048 $(TINY_EDUK_FLAGS)
 
@@ -50,7 +50,12 @@ ACCESSORS = accessors
 
 $(ACCESSORS):
 	if [ ! -d $(ACCESSORS) ]; then \
-		svn co https://repo.eecs.berkeley.edu/svn-anon/projects/terraswarm/accessors/trunk/accessors; \
+		echo "Try checking out the accessors repo read/write"; \
+		svn co https://repo.eecs.berkeley.edu/svn/projects/terraswarm/accessors/trunk/accessors; \
+		if [ ! -d $(ACCESSORS) ]; then \
+			echo "Checking out the accessors repo read/write, failed, checking it out read-only instead."; \
+			svn co https://repo.eecs.berkeley.edu/svn-anon/projects/terraswarm/accessors/trunk/accessors; \
+		fi; \
 	else \
 		(cd $(ACCESSORS); svn update); \
 	fi
