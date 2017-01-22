@@ -9,6 +9,8 @@
 int _gettimeofday(struct timeval *tp, void *tzp) {
   return 0;
 }
+#else
+#define putstr(x) fprintf(stderr, "%s", x);
 #endif
 
 
@@ -44,7 +46,7 @@ int main(int argc, char *argv[]) {
 
   (void) argc; (void) argv;  /* suppress warning */
 
-  putstr("duktape/main.c: before pushing native_print\n");
+  putstr("duktape/main.c: before pushing native_print 2\n");
   duk_push_c_function(ctx, native_print, DUK_VARARGS);
   putstr("duktape/main.c: after pushing native_print\n");
 

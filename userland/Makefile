@@ -28,7 +28,7 @@ ELF2TBF_ARGS += -n $(PACKAGE_NAME)
 OBJS += $(patsubst %.c,$(BUILDDIR)/%.o,$(C_SRCS))
 OBJS += $(patsubst %.cc,$(BUILDDIR)/%.o,$(CXX_SRCS))
 
-CPPFLAGS += -DSTACK_SIZE=2048
+#CPPFLAGS += -DSTACK_SIZE=2048
 
 AS := $(TOOLCHAIN)-as
 ASFLAGS += -mcpu=$(TOCK_ARCH) -mthumb

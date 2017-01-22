@@ -39,7 +39,9 @@ unsafe fn load_processes() -> &'static mut [Option<kernel::process::Process<'sta
     const FAULT_RESPONSE: kernel::process::FaultResponse = kernel::process::FaultResponse::Panic;
 
     #[link_section = ".app_memory"]
-    static mut APP_MEMORY: [u8; 16384] = [0; 16384];
+    //static mut APP_MEMORY: [u8; 16384] = [0; 16384];
+    static mut APP_MEMORY: [u8; 32768] = [0; 32768];
+    //static mut APP_MEMORY: [u8; 45056] = [0; 45056];
 
     static mut processes: [Option<kernel::process::Process<'static>>; NUM_PROCS] = [None, None];
 
@@ -369,7 +371,8 @@ pub unsafe fn reset_handler() {
     hail.nrf51822.initialize();
 
     let mut chip = sam4l::chip::Sam4l::new();
-    chip.mpu().enable_mpu();
+    // duktape Disable the MPU, see https://www.terraswarm.org/accessors/wiki/TockOS/HailSize#DisableMPU
+    //chip.mpu().enable_mpu();
 
     kernel::main(&hail, &mut chip, load_processes(), &hail.ipc);
 }

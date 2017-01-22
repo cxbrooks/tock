@@ -394,10 +394,12 @@ impl<'a> Process<'a> {
                 // two. We should be able to make this closer to what we actually need.
 
                 if app_slice_size > remaining_app_memory_size {
-                    panic!("{:?} failed to load. Insufficient memory. Requested {} have {}",
+                    panic!("{:?} failed to load. Insufficient memory. Requested {} have {}, data: {}, stack: {}, app_heap {}, kernel_heap{}",
                            load_result.package_name,
                            app_slice_size,
-                           remaining_app_memory_size);
+                           remaining_app_memory_size,
+                           load_result.data_len, stack_len, app_heap_len, kernel_heap_len
+                    );
                 }
 
                 let app_memory = slice::from_raw_parts_mut(remaining_app_memory, app_slice_size);
