@@ -18509,8 +18509,9 @@ DUK_EXTERNAL duk_int_t duk_eval_raw(duk_context *ctx, const char *src_buffer, du
 	duk_uint_t comp_flags;
 	duk_int_t rc;
 
+	printf("duk_eval_raw()0a\n");
 	DUK_ASSERT_CTX_VALID(ctx);
-
+	printf("duk_eval_raw()0b\n");
 	/* Note: strictness is *not* inherited from the current Duktape/C.
 	 * This would be confusing because the current strictness state
 	 * depends on whether we're running inside a Duktape/C activation
@@ -18523,7 +18524,7 @@ DUK_EXTERNAL duk_int_t duk_eval_raw(duk_context *ctx, const char *src_buffer, du
 	comp_flags = flags;
 	comp_flags |= DUK_COMPILE_EVAL;
 	rc = duk_compile_raw(ctx, src_buffer, src_length, comp_flags);  /* may be safe, or non-safe depending on flags */
-
+	printf("duk_eval_raw()1ba\n");
 	/* [ ... closure/error ] */
 
 	if (rc != DUK_EXEC_SUCCESS) {
@@ -18532,7 +18533,6 @@ DUK_EXTERNAL duk_int_t duk_eval_raw(duk_context *ctx, const char *src_buffer, du
 	}
 
 	duk_push_global_object(ctx);  /* explicit 'this' binding, see GH-164 */
-
 	if (flags & DUK_COMPILE_SAFE) {
 		rc = duk_pcall_method(ctx, 0);
 	} else {
@@ -18609,7 +18609,9 @@ DUK_LOCAL duk_ret_t duk__do_compile(duk_context *ctx, void *udata) {
 
 	/* [ ... source? filename ] */
 
+	printf("duk__do_compile()6\n");
 	duk_js_compile(thr, comp_args->src_buffer, comp_args->src_length, comp_flags);
+	printf("duk__do_compile()7\n");
 
 	/* [ ... source? func_template ] */
 
@@ -18638,7 +18640,9 @@ DUK_EXTERNAL duk_int_t duk_compile_raw(duk_context *ctx, const char *src_buffer,
 	duk__compile_raw_args comp_args_alloc;
 	duk__compile_raw_args *comp_args = &comp_args_alloc;
 
+	printf("duk_compile_raw()0\n");
 	DUK_ASSERT_CTX_VALID(ctx);
+	printf("duk_compile_raw()1\n");
 
 	if ((flags & DUK_COMPILE_STRLEN) && (src_buffer != NULL)) {
 		/* String length is computed here to avoid multiple evaluation
@@ -18671,8 +18675,10 @@ DUK_EXTERNAL duk_int_t duk_compile_raw(duk_context *ctx, const char *src_buffer,
 		return rc;
 	}
 
+	printf("duk_compile_raw()8\n");
 	(void) duk__do_compile(ctx, (void *) comp_args);
 
+	printf("duk_compile_raw()9\n");
 	/* [ ... closure ] */
 	return DUK_EXEC_SUCCESS;
 }
@@ -71629,6 +71635,8 @@ DUK_LOCAL void duk__parse_func_body(duk_compiler_ctx *comp_ctx, duk_bool_t expec
 	duk_reg_t temp_first;
 	duk_small_int_t compile_round = 1;
 
+	printf("duk__parse_func_body()0\n");
+
 	DUK_ASSERT(comp_ctx != NULL);
 
 	thr = comp_ctx->thr;
@@ -71675,6 +71683,7 @@ DUK_LOCAL void duk__parse_func_body(duk_compiler_ctx *comp_ctx, duk_bool_t expec
 #endif
 	}
 
+	printf("duk__parse_func_body()p1\n");
 	/*
 	 *  First pass.
 	 *
@@ -71696,6 +71705,7 @@ DUK_LOCAL void duk__parse_func_body(duk_compiler_ctx *comp_ctx, duk_bool_t expec
 
 	/* duk__parse_stmts() expects curr_tok to be set; parse in "allow regexp literal" mode with current strictness */
 	if (expect_token >= 0) {
+	printf("duk__parse_func_body()p1.1\n");
 		/* Eating a left curly; regexp mode is allowed by left curly
 		 * based on duk__token_lbp[] automatically.
 		 */
@@ -71703,6 +71713,7 @@ DUK_LOCAL void duk__parse_func_body(duk_compiler_ctx *comp_ctx, duk_bool_t expec
 		duk__update_lineinfo_currtoken(comp_ctx);
 		duk__advance_expect(comp_ctx, expect_token);
 	} else {
+	printf("duk__parse_func_body()p1.2\n");
 		/* Need to set curr_token.t because lexing regexp mode depends on current
 		 * token type.  Zero value causes "allow regexp" mode.
 		 */
@@ -71710,12 +71721,14 @@ DUK_LOCAL void duk__parse_func_body(duk_compiler_ctx *comp_ctx, duk_bool_t expec
 		duk__advance(comp_ctx);
 	}
 
+	printf("duk__parse_func_body()p1a\n");
 	DUK_DDD(DUK_DDDPRINT("begin 1st pass"));
 	duk__parse_stmts(comp_ctx,
 	                 1,             /* allow source elements */
 	                 expect_eof);   /* expect EOF instead of } */
 	DUK_DDD(DUK_DDDPRINT("end 1st pass"));
 
+	printf("duk__parse_func_body()p2\n");
 	/*
 	 *  Second (and possibly third) pass.
 	 *
@@ -71837,6 +71850,7 @@ DUK_LOCAL void duk__parse_func_body(duk_compiler_ctx *comp_ctx, duk_bool_t expec
 		DUK_D(DUK_DPRINT("need additional round to compile function, round now %d", (int) compile_round));
 	}
 
+	printf("duk__parse_func_body()8\n");
 	/*
 	 *  Emit a final RETURN.
 	 *
@@ -72208,6 +72222,7 @@ DUK_LOCAL duk_ret_t duk__js_compile_raw(duk_context *ctx, void *udata) {
 	duk_bool_t is_funcexpr;
 	duk_small_uint_t flags;
 
+	printf("duk__js_compile_raw()0\n");
 	DUK_ASSERT(thr != NULL);
 	DUK_ASSERT(udata != NULL);
 
@@ -72270,6 +72285,7 @@ DUK_LOCAL duk_ret_t duk__js_compile_raw(duk_context *ctx, void *udata) {
 	comp_ctx->lex.slot2_idx = comp_ctx->tok12_idx;
 	comp_ctx->lex.buf_idx = entry_top + 0;
 	comp_ctx->lex.buf = (duk_hbuffer_dynamic *) duk_known_hbuffer(ctx, entry_top + 0);
+	printf("duk__js_compile_raw()4\n");
 	DUK_ASSERT(DUK_HBUFFER_HAS_DYNAMIC(comp_ctx->lex.buf) && !DUK_HBUFFER_HAS_EXTERNAL(comp_ctx->lex.buf));
 	comp_ctx->lex.token_limit = DUK_COMPILER_TOKEN_LIMIT;
 
@@ -72306,7 +72322,9 @@ DUK_LOCAL duk_ret_t duk__js_compile_raw(duk_context *ctx, void *udata) {
 	func->is_strict = is_strict;
 	DUK_ASSERT(func->is_notail == 0);
 
+	printf("duk__js_compile_raw()5\n");
 	if (is_funcexpr) {
+	printf("duk__js_compile_raw()6\n");
 		func->is_function = 1;
 		DUK_ASSERT(func->is_eval == 0);
 		DUK_ASSERT(func->is_global == 0);
@@ -72317,6 +72335,7 @@ DUK_LOCAL duk_ret_t duk__js_compile_raw(duk_context *ctx, void *udata) {
 		duk__advance_expect(comp_ctx, DUK_TOK_FUNCTION);
 		(void) duk__parse_func_like_raw(comp_ctx, 0 /*flags*/);
 	} else {
+	  printf("duk__js_compile_raw()7\n");
 		DUK_ASSERT(func->is_function == 0);
 		func->is_eval = is_eval;
 		func->is_global = !is_eval;
@@ -72329,6 +72348,7 @@ DUK_LOCAL duk_ret_t duk__js_compile_raw(duk_context *ctx, void *udata) {
 		                     -1);           /* expect_token */
 	}
 
+	printf("duk__js_compile_raw()8\n");
 	/*
 	 *  Convert duk_compiler_func to a function template
 	 */
@@ -72341,6 +72361,7 @@ DUK_LOCAL duk_ret_t duk__js_compile_raw(duk_context *ctx, void *udata) {
 
 	/* [ ... filename (temps) func ] */
 
+	printf("duk__js_compile_raw()9\n");
 	return 1;
 }
 
@@ -72350,6 +72371,7 @@ DUK_INTERNAL void duk_js_compile(duk_hthread *thr, const duk_uint8_t *src_buffer
 	duk_compiler_ctx *prev_ctx;
 	duk_ret_t safe_rc;
 
+	printf("duk_js_compile()0\n");
 	DUK_ASSERT(thr != NULL);
 	DUK_ASSERT(src_buffer != NULL);
 
@@ -72364,14 +72386,16 @@ DUK_INTERNAL void duk_js_compile(duk_hthread *thr, const duk_uint8_t *src_buffer
 
 	prev_ctx = thr->compile_ctx;
 	thr->compile_ctx = &comp_stk.comp_ctx_alloc;  /* for duk_error_augment.c */
+	printf("duk_js_compile()5\n");
 	safe_rc = duk_safe_call(ctx, duk__js_compile_raw, (void *) &comp_stk /*udata*/, 1 /*nargs*/, 1 /*nret*/);
 	thr->compile_ctx = prev_ctx;  /* must restore reliably before returning */
 
 	if (safe_rc != DUK_EXEC_SUCCESS) {
+	  printf("duk_js_compile()8\n");
 		DUK_D(DUK_DPRINT("compilation failed: %!T", duk_get_tval(ctx, -1)));
 		(void) duk_throw(ctx);
 	}
-
+	printf("duk_js_compile()9\n");
 	/* [ ... template ] */
 }
 

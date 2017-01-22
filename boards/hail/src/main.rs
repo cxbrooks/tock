@@ -40,8 +40,9 @@ unsafe fn load_processes() -> &'static mut [Option<kernel::process::Process<'sta
 
     #[link_section = ".app_memory"]
     //static mut APP_MEMORY: [u8; 16384] = [0; 16384];
-    static mut APP_MEMORY: [u8; 32768] = [0; 32768];
-    //static mut APP_MEMORY: [u8; 45056] = [0; 45056];
+    //static mut APP_MEMORY: [u8; 32768] = [0; 32768];
+    static mut APP_MEMORY: [u8; 45056] = [0; 45056];
+
 
     static mut processes: [Option<kernel::process::Process<'static>>; NUM_PROCS] = [None, None];
 

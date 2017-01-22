@@ -386,8 +386,11 @@ impl<'a> Process<'a> {
                 let app_heap_len = align8!(load_info.min_app_heap_len);
                 let kernel_heap_len = align8!(load_info.min_kernel_heap_len);
 
+                //let app_slice_size =
+                //    closest_power_of_two(load_result.data_len + stack_len + app_heap_len +
+                //                         kernel_heap_len) as usize;
                 let app_slice_size =
-                    closest_power_of_two(load_result.data_len + stack_len + app_heap_len +
+                    (load_result.data_len + stack_len + app_heap_len +
                                          kernel_heap_len) as usize;
                 // TODO round app_slice_size up to a closer MPU unit.
                 // This is a very conservative approach that rounds up to power of
