@@ -53,17 +53,18 @@ int main(int argc, char *argv[]) {
   duk_put_global_string(ctx, "print");
   putstr("duktape/main.c: after put_global print\n");
 
-  duk_push_c_function(ctx, native_adder, DUK_VARARGS);
-  putstr("duktape/main.c: after pushing native_adder\n");
-
-  duk_put_global_string(ctx, "adder");
-  putstr("duktape/main.c: after put_global print\n");
-
   duk_eval_string(ctx, "print('Hello world!');");
   putstr("duktape/main.c: after eval print1\n");
 
-  duk_eval_string(ctx, "print('2+3=' + adder(2, 3));");
-  putstr("duktape/main.c: after eval print2\n");
+  /* duk_push_c_function(ctx, native_adder, DUK_VARARGS); */
+  /* putstr("duktape/main.c: after pushing native_adder\n"); */
+
+  /* duk_put_global_string(ctx, "adder"); */
+  /* putstr("duktape/main.c: after put_global print\n"); */
+
+
+  /* duk_eval_string(ctx, "print('2+3=' + adder(2, 3));"); */
+  /* putstr("duktape/main.c: after eval print2\n"); */
 
   duk_pop(ctx);  /* pop eval result */
 
