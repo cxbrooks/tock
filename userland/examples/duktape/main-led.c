@@ -1,5 +1,6 @@
 /*
- *  Very simple example program
+ *  Toggle a LED.
+ *  See https://www.terraswarm.org/accessors/wiki/TockOS/Duktape2ToggleLED
  */
 
 #include "duktape.h"
