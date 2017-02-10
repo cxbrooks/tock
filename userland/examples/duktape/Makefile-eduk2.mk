@@ -18,10 +18,12 @@ C_SRCS := duktape.c \
 #SWARMLET = -DHAIL_PRINT
 
 # EDUK_PRINT invokes JavaScript print(), much like main-simple.c
-SWARMLET = -DEDUK_PRINT
+#SWARMLET = -DEDUK_PRINT
 
-#SWARMLET = -DEDUK_MIN 
-#SWARMLET = -DEDUK_MIN -DHAIL_PRINT
+# If EDUK_MIN is defined, then duktape accessor host .h files are not
+# included.
+SWARMLET = -DEDUK_MIN 
+
 
 CFLAGS += -Os -DSTACK_SIZE=6134 -DAPP_HEAP_SIZE=32768 $(SWARMLET)
 
@@ -33,7 +35,7 @@ include $(TOCK_USERLAND_BASE_DIR)/Makefile
 # To compile, use:
 #     make -f Makefile-eduk2.mk eduk2
 eduk2: $(C_SRCS) 
-	gcc -o $@ $(C_SRCS) -I. -I$(EDUK) -Os
+	gcc -o $@ $(C_SRCS) -I. -I$(EDUK) $(SWARMLET) -Os
 
 
 # .h files that contain the contents of .js files
