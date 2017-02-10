@@ -24,6 +24,11 @@ READELF := $(TOOLCHAIN)-readelf
 # PACKAGE_NAME is used to identify the application for IPC and for error reporting
 PACKAGE_NAME ?= $(notdir $(shell pwd))
 
+# Set default region sizes
+STACK_SIZE       ?= 2048
+APP_HEAP_SIZE    ?= 1024
+KERNEL_HEAP_SIZE ?= 1024
+
 # This could be replaced with an installed version of `elf2tbf`
 ELF2TBF ?= cargo run --manifest-path $(abspath $(TOCK_USERLAND_BASE_DIR))/tools/elf2tbf/Cargo.toml --
 ELF2TBF_ARGS += -n $(PACKAGE_NAME)
@@ -31,8 +36,6 @@ ELF2TBF_ARGS += -n $(PACKAGE_NAME)
 # Collect all desired built output.
 OBJS += $(patsubst %.c,$(BUILDDIR)/%.o,$(C_SRCS))
 OBJS += $(patsubst %.cc,$(BUILDDIR)/%.o,$(CXX_SRCS))
-
-#CPPFLAGS += -DSTACK_SIZE=2048
 
 ASFLAGS += -mcpu=$(TOCK_ARCH) -mthumb
 
@@ -44,6 +47,7 @@ CPPFLAGS += \
 	    -frecord-gcc-switches\
 	    -Os\
 	    -fdata-sections -ffunction-sections\
+	    -fstack-usage -Wstack-usage=$(STACK_SIZE)\
 	    -Wall\
 	    -Wextra\
 	    -Wl,-gc-sections\
@@ -54,7 +58,46 @@ CPPFLAGS += \
 	    -mno-pic-data-is-text-relative
 OBJDUMP_FLAGS += --disassemble-all --source --disassembler-options=force-thumb -C --section-headers
 
-LIBS =  $(TOCK_USERLAND_BASE_DIR)/newlib/libc.a $(LIBTOCK) $(OTHERLIBS)
+# Extra warning flags not enabled by Wall or Wextra.
+# I read through the gcc manual and grabbed the ones that I thought might be
+# interesting / useful. I've left a few commented that may be interesting but I
+# want to think about more
+CPPFLAGS += -Winit-self                  # { int i = i }
+CPPFLAGS += -Wswitch-enum                # switch on an enum doesn't cover all cases
+CPPFLAGS += -Wunused-parameter           # function parameter is unused aside from its declaration
+CPPFLAGS += -Wfloat-equal                # warn if floats used with '=' operator, likely imprecise
+CPPFLAGS += -Wshadow                     # int foo(int a) { int a = 1; } inner a shadows outer a
+CPPFLAGS += -Wpointer-arith              # sizeof things not define'd (i.e. sizeof(void))
+CPPFLAGS += -Wwrite-strings              # { char* c = "foo"; c[0] = 'b' } <-- "foo" should be r/o
+CPPFLAGS += -Wlogical-op                 # "suspicous use of logical operators in expressions" (a lint)
+CPPFLAGS += -Wmissing-declarations       # ^same? not sure how these differ
+CPPFLAGS += -Wmissing-field-initializers # if init'ing struct w/out field names, warn if not all used
+CPPFLAGS += -Wmissing-noreturn           # __attribute__((noreturn)) like -> ! in Rust, should use it
+CPPFLAGS += -Wmissing-format-attribute   # something looks printf-like but isn't marked as such
+CPPFLAGS += -Wredundant-decls            # { int i; int i; } (a lint)
+
+# C-only warnings
+CFLAGS += -Wbad-function-cast            # not obvious when this would trigger, could drop if annoying
+CFLAGS += -Wmissing-prototypes           # global fn defined w/out prototype (should be static or in .h)
+CFLAGS += -Wnested-externs               # mis/weird-use of extern keyword
+
+# CXX-only warnings
+# XXX todo
+
+#CPPFLAGS += -Wundef                      # undefined identifier is evaluated in an `#if' directive
+#                                         ^ Lots of library #if SAMD || SMAR21 stuff
+#                                           Should probably be ifdef, but too much noise
+#CPPFLAGS += -Wconversion                 # implicit conversion that may unexpectedly alter value
+#                                         ^ A ton of these from syscalls I think, XXX look later
+#CPPFLAGS += -Wpadded               -- Noisy for argument passing structs
+#CPPFLAGS += -Wunreachable-code     -- Obnoxious during development
+#CPPFLAGS += -Wstrict-prototypes    -- Who wants a warning for not decarling main?
+#CPPFLAGS += -Wvla                  -- XXX Didn't try, but interested
+#CPPFLAGS += -Wmissing-include-dirs -- XXX Didn't try, afriad could be annoying
+
+
+LIBS += $(LIBTOCK)
+LIBS += $(TOCK_USERLAND_BASE_DIR)/newlib/libc.a
 LIBS += $(TOCK_USERLAND_BASE_DIR)/newlib/libm.a
 LIBS += $(TOCK_USERLAND_BASE_DIR)/libc++/libstdc++.a
 LIBS += $(TOCK_USERLAND_BASE_DIR)/libc++/libsupc++.a
@@ -101,7 +144,18 @@ $(BUILDDIR):
 
 $(BUILDDIR)/app.elf: $(OBJS) $(TOCK_USERLAND_BASE_DIR)/newlib/libc.a $(LIBTOCK) | $(BUILDDIR)
 	$(TRACE_LD)
-	$(Q)$(CC) -Wl,--gc-sections -Wl,--emit-relocs --entry=_start $(CFLAGS) $(CPPFLAGS) -T $(LINKER) -nostdlib -Wl,--start-group $(OBJS) $(LIBS) -Wl,--end-group -Wl,-Map=$(BUILDDIR)/app.Map -o $@
+	$(Q)$(CC) $(CFLAGS) $(CPPFLAGS)\
+	    -Wl,--warn-common\
+	    -Wl,--gc-sections -Wl,--emit-relocs\
+	    --entry=_start\
+	    -Xlinker --defsym=STACK_SIZE=$(STACK_SIZE)\
+	    -Xlinker --defsym=APP_HEAP_SIZE=$(APP_HEAP_SIZE)\
+	    -Xlinker --defsym=KERNEL_HEAP_SIZE=$(KERNEL_HEAP_SIZE)\
+	    -T $(LINKER)\
+	    -nostdlib\
+	    -Wl,--start-group $(OBJS) $(LIBS) -Wl,--end-group\
+	    -Wl,-Map=$(BUILDDIR)/app.Map\
+	    -o $@
 
 $(BUILDDIR)/app.bin: $(BUILDDIR)/app.elf | $(BUILDDIR) validate_gcc_flags
 	$(TRACE_BIN)

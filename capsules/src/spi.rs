@@ -3,12 +3,11 @@
 
 use core::cell::Cell;
 use core::cmp;
-use kernel::{AppId, Driver, Callback, AppSlice, Shared};
-use kernel::common::take_cell::TakeCell;
+use kernel::{AppId, AppSlice, Callback, Driver, ReturnCode, Shared};
+use kernel::common::take_cell::{MapCell, TakeCell};
 use kernel::hil::spi::{SpiMasterDevice, SpiMasterClient};
 use kernel::hil::spi::ClockPhase;
 use kernel::hil::spi::ClockPolarity;
-use kernel::returncode::ReturnCode;
 
 // SPI operations are handled by coping into a kernel buffer for
 // writes and copying out of a kernel buffer for reads.
@@ -30,9 +29,9 @@ struct App {
 pub struct Spi<'a, S: SpiMasterDevice + 'a> {
     spi_master: &'a S,
     busy: Cell<bool>,
-    app: TakeCell<App>,
-    kernel_read: TakeCell<&'static mut [u8]>,
-    kernel_write: TakeCell<&'static mut [u8]>,
+    app: MapCell<App>,
+    kernel_read: TakeCell<'static, [u8]>,
+    kernel_write: TakeCell<'static, [u8]>,
     kernel_len: Cell<usize>,
 }
 
@@ -41,7 +40,7 @@ impl<'a, S: SpiMasterDevice> Spi<'a, S> {
         Spi {
             spi_master: spi_master,
             busy: Cell::new(false),
-            app: TakeCell::empty(),
+            app: MapCell::empty(),
             kernel_len: Cell::new(0),
             kernel_read: TakeCell::empty(),
             kernel_write: TakeCell::empty(),
@@ -64,11 +63,11 @@ impl<'a, S: SpiMasterDevice> Spi<'a, S> {
         app.index = end;
 
         self.kernel_write.map(|kwbuf| {
-            app.app_write.as_mut().map(|src| {
-                for (i, c) in src.as_ref()[start..end].iter().enumerate() {
+            app.app_write
+                .as_mut()
+                .map(|src| for (i, c) in src.as_ref()[start..end].iter().enumerate() {
                     kwbuf[i] = *c;
-                }
-            });
+                });
         });
         self.spi_master.read_write_bytes(self.kernel_write.take().unwrap(),
                                          self.kernel_read.take(),
@@ -283,9 +282,7 @@ impl<'a, S: SpiMasterDevice> SpiMasterClient for Spi<'a, S> {
                 self.busy.set(false);
                 app.len = 0;
                 app.index = 0;
-                app.callback.take().map(|mut cb| {
-                    cb.schedule(app.len, 0, 0);
-                });
+                app.callback.take().map(|mut cb| { cb.schedule(app.len, 0, 0); });
             } else {
                 self.do_next_read_write(app);
             }

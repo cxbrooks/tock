@@ -26,7 +26,7 @@
 use core::cell::Cell;
 use core::mem;
 use kernel::common::VolatileCell;
-use kernel::common::take_cell::TakeCell;
+use kernel::common::take_cell::MapCell;
 use nvic;
 use pm;
 
@@ -159,14 +159,14 @@ pub struct FLASHCALW {
     pb_clock: pm::Clock,
     error_status: Cell<u32>,
     ready: Cell<bool>,
-    client: TakeCell<&'static Client>,
+    client: Cell<Option<&'static Client>>,
     current_state: Cell<FlashState>,
     current_command: Cell<Command>,
-    page_buffer: TakeCell<[u8; PAGE_SIZE as usize]>,
+    page_buffer: MapCell<[u8; PAGE_SIZE as usize]>,
 }
 
 // static instance for the board. Only one FLASHCALW on chip.
-pub static mut flash_controller: FLASHCALW = FLASHCALW::new(FLASHCALW_BASE_ADDRS,
+pub static mut FLASH_CONTROLLER: FLASHCALW = FLASHCALW::new(FLASHCALW_BASE_ADDRS,
                                                             pm::HSBClock::FLASHCALW,
                                                             pm::HSBClock::FLASHCALWP,
                                                             pm::PBBClock::FLASHCALW);
@@ -215,10 +215,10 @@ impl FLASHCALW {
             pb_clock: pm::Clock::PBB(pb_clk),
             error_status: Cell::new(0),
             ready: Cell::new(true),
-            client: TakeCell::empty(),
+            client: Cell::new(None),
             current_state: Cell::new(FlashState::Unconfigured),
             current_command: Cell::new(Command::None),
-            page_buffer: TakeCell::new([0; PAGE_SIZE as usize]),
+            page_buffer: MapCell::new([0; PAGE_SIZE as usize]),
         }
     }
 
@@ -280,26 +280,21 @@ impl FLASHCALW {
             self.current_command.set(Command::None);
             self.current_state.set(FlashState::Ready);
 
-            // call command complete with error
-            match error_status {
-                4 => {
-                    self.client.map(|value| {
-                        value.command_complete(Error::LockE);
-                    });
+            self.client.get().map(|client| {
+                // call command complete with error
+                match error_status {
+                    4 => {
+                        client.command_complete(Error::LockE);
+                    }
+                    8 => {
+                        client.command_complete(Error::ProgE);
+                    }
+                    12 => {
+                        client.command_complete(Error::LockProgE);
+                    }
+                    _ => {}
                 }
-                8 => {
-                    self.client.map(|value| {
-                        value.command_complete(Error::ProgE);
-                    });
-                }
-                12 => {
-                    self.client.map(|value| {
-                        value.command_complete(Error::LockProgE);
-                    });
-                }
-                _ => {}
-            }
-            return;
+            });
         }
 
         //  Part of a command succeeded -- continue onto next steps.
@@ -366,9 +361,7 @@ impl FLASHCALW {
         //  If the command is finished call the complete CB.
         if self.current_command.get() == Command::None &&
            self.current_state.get() == FlashState::Ready {
-            self.client.map(|value| {
-                value.command_complete(Error::CommandComplete);
-            });
+            self.client.get().map(|value| { value.command_complete(Error::CommandComplete); });
         }
     }
 
@@ -747,7 +740,7 @@ impl FLASHCALW {
             }
         }
         //  replace the page buffer in the take cell
-        self.page_buffer.put(Some(buffer));
+        self.page_buffer.put(buffer);
     }
 
     // returns the error_status (useful for debugging).
@@ -759,7 +752,7 @@ impl FLASHCALW {
 // Implementation of high level calls using the low-lv functions.
 impl FLASHCALW {
     pub fn set_client(&self, client: &'static Client) {
-        self.client.put(Some(client));
+        self.client.set(Some(client));
     }
 
     pub fn configure(&mut self) {
@@ -778,7 +771,7 @@ impl FLASHCALW {
 
         // configure all other interrupts explicitly.
         self.enable_ready_int(false); // note the issue_command function turns this
-                                      // on when need be.
+        // on when need be.
         self.enable_lock_error_int(false);
         self.enable_prog_error_int(false);
         self.enable_ecc_int(false);
@@ -849,9 +842,7 @@ impl FLASHCALW {
             return -1;
         }
 
-        self.page_buffer.map(|value| {
-            value.clone_from_slice(&data);
-        });
+        self.page_buffer.map(|value| { value.clone_from_slice(&data); });
 
         self.current_state.set(FlashState::Unlocking);
         self.current_command.set(Command::Write { page: page_num });
@@ -883,7 +874,7 @@ pub unsafe extern "C" fn flash_handler() {
 
     //  disable the nvic interrupt line for flash, turn of the perherial interrupt,
     //  and queue a handle interrupt.
-    flash_controller.enable_ready_int(false);
+    FLASH_CONTROLLER.enable_ready_int(false);
     nvic::disable(nvic::NvicIdx::HFLASHC);
     chip::INTERRUPT_QUEUE.as_mut().unwrap().enqueue(nvic::NvicIdx::HFLASHC);
 }

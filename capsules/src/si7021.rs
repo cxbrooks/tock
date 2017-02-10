@@ -3,13 +3,12 @@
 //! https://www.silabs.com/products/sensors/humidity-sensors/Pages/si7013-20-21.aspx
 
 use core::cell::Cell;
-use kernel::{AppId, Callback, Driver};
+use kernel::{AppId, Callback, Driver, ReturnCode};
 
 use kernel::common::take_cell::TakeCell;
 use kernel::hil::i2c;
 use kernel::hil::time;
 use kernel::hil::time::Frequency;
-use kernel::returncode::ReturnCode;
 
 // Buffer to use for I2C messages
 pub static mut BUFFER: [u8; 14] = [0; 14];
@@ -57,7 +56,7 @@ pub struct SI7021<'a, A: time::Alarm + 'a> {
     alarm: &'a A,
     callback: Cell<Option<Callback>>,
     state: Cell<State>,
-    buffer: TakeCell<&'static mut [u8]>,
+    buffer: TakeCell<'static, [u8]>,
 }
 
 impl<'a, A: time::Alarm + 'a> SI7021<'a, A> {

@@ -4,10 +4,9 @@
 //! This capsule handles interfacing with the UART driver, and includes
 //! some nuances that keep the Nordic BLE serialization library happy.
 
-use kernel::{AppId, Callback, AppSlice, Driver, Shared};
-use kernel::common::take_cell::TakeCell;
+use kernel::{AppId, Callback, AppSlice, Driver, ReturnCode, Shared};
+use kernel::common::take_cell::{MapCell, TakeCell};
 use kernel::hil::uart::{self, UARTAdvanced, Client};
-use kernel::returncode::ReturnCode;
 
 struct App {
     callback: Option<Callback>,
@@ -26,9 +25,9 @@ pub static mut READ_BUF: [u8; 600] = [0; 600];
 // application.
 pub struct Nrf51822Serialization<'a, U: UARTAdvanced + 'a> {
     uart: &'a U,
-    app: TakeCell<App>,
-    tx_buffer: TakeCell<&'static mut [u8]>,
-    rx_buffer: TakeCell<&'static mut [u8]>,
+    app: MapCell<App>,
+    tx_buffer: TakeCell<'static, [u8]>,
+    rx_buffer: TakeCell<'static, [u8]>,
 }
 
 impl<'a, U: UARTAdvanced> Nrf51822Serialization<'a, U> {
@@ -38,7 +37,7 @@ impl<'a, U: UARTAdvanced> Nrf51822Serialization<'a, U> {
                -> Nrf51822Serialization<'a, U> {
         Nrf51822Serialization {
             uart: uart,
-            app: TakeCell::empty(),
+            app: MapCell::empty(),
             tx_buffer: TakeCell::new(tx_buffer),
             rx_buffer: TakeCell::new(rx_buffer),
         }
@@ -122,9 +121,9 @@ impl<'a, U: UARTAdvanced> Driver for Nrf51822Serialization<'a, U> {
                     None => {
                         // can't start receiving until DMA has been set up
                         //  we'll start here when subscribe is first called
-                        self.rx_buffer.take().map(|buffer| {
-                            self.uart.receive_automatic(buffer, 250);
-                        });
+                        self.rx_buffer
+                            .take()
+                            .map(|buffer| { self.uart.receive_automatic(buffer, 250); });
 
                         App {
                             callback: Some(callback),
@@ -206,9 +205,7 @@ impl<'a, U: UARTAdvanced> Client for Nrf51822Serialization<'a, U> {
         //               Can't just use 0!
         self.app.map(|appst| {
             // Call the callback after TX has finished
-            appst.callback.as_mut().map(|mut cb| {
-                cb.schedule(1, 0, 0);
-            });
+            appst.callback.as_mut().map(|mut cb| { cb.schedule(1, 0, 0); });
         });
     }
 
@@ -227,10 +224,8 @@ impl<'a, U: UARTAdvanced> Client for Nrf51822Serialization<'a, U> {
                 }
 
                 // copy over data to app buffer
-                self.rx_buffer.map(|buffer| {
-                    for idx in 0..max_len {
-                        rb.as_mut()[idx] = buffer[idx];
-                    }
+                self.rx_buffer.map(|buffer| for idx in 0..max_len {
+                    rb.as_mut()[idx] = buffer[idx];
                 });
 
                 appst.callback.as_mut().map(|cb| {
@@ -243,8 +238,6 @@ impl<'a, U: UARTAdvanced> Client for Nrf51822Serialization<'a, U> {
         });
 
         // restart the uart receive
-        self.rx_buffer.take().map(|buffer| {
-            self.uart.receive_automatic(buffer, 250);
-        });
+        self.rx_buffer.take().map(|buffer| { self.uart.receive_automatic(buffer, 250); });
     }
 }

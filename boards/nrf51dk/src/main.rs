@@ -39,7 +39,7 @@
 
 extern crate cortexm0;
 extern crate capsules;
-#[macro_use(static_init)]
+#[macro_use(debug, static_init)]
 extern crate kernel;
 extern crate nrf51;
 
@@ -79,7 +79,7 @@ unsafe fn load_process() -> &'static mut [Option<kernel::process::Process<'stati
     #[link_section = ".app_memory"]
     static mut APP_MEMORY: [u8; 8192] = [0; 8192];
 
-    static mut processes: [Option<kernel::process::Process<'static>>; NUM_PROCS] = [None];
+    static mut PROCESSES: [Option<kernel::process::Process<'static>>; NUM_PROCS] = [None];
 
     let mut apps_in_flash_ptr = &_sapps as *const u8;
     let mut app_memory_ptr = APP_MEMORY.as_mut_ptr();
@@ -95,13 +95,13 @@ unsafe fn load_process() -> &'static mut [Option<kernel::process::Process<'stati
             break;
         }
 
-        processes[i] = process;
+        PROCESSES[i] = process;
         apps_in_flash_ptr = apps_in_flash_ptr.offset(flash_offset as isize);
         app_memory_ptr = app_memory_ptr.offset(memory_offset as isize);
         app_memory_size -= memory_offset;
     }
 
-    &mut processes
+    &mut PROCESSES
 }
 
 pub struct Platform {
@@ -183,7 +183,7 @@ pub unsafe fn reset_handler() {
     let gpio = static_init!(
         capsules::gpio::GPIO<'static, nrf51::gpio::GPIOPin>,
         capsules::gpio::GPIO::new(gpio_pins),
-        20);
+        224/8);
     for pin in gpio_pins.iter() {
         pin.set_client(gpio);
     }
@@ -201,6 +201,13 @@ pub unsafe fn reset_handler() {
         224/8);
     UART::set_client(&nrf51::uart::UART0, console);
     console.initialize();
+
+    // Attach the kernel debug interface to this console
+    let kc = static_init!(
+        capsules::console::App,
+        capsules::console::App::default(),
+        480/8);
+    kernel::debug::assign_console_driver(Some(console), kc);
 
     let alarm = &nrf51::rtc::RTC;
     alarm.start();
@@ -244,6 +251,7 @@ pub unsafe fn reset_handler() {
     chip.systick().reset();
     chip.systick().enable(true);
 
+    debug!("Initialization complete. Entering main loop");
     kernel::main(&platform,
                  &mut chip,
                  load_process(),

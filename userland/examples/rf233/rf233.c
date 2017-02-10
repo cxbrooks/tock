@@ -33,7 +33,7 @@ static volatile int sleep_on = 0;
 static int rf233_prepare_without_header(const uint8_t *data, unsigned short data_len);
 static int rf233_setup(void);
 static int rf233_prepare(const void *payload, unsigned short payload_len);
-static int rf233_transmit();
+static int rf233_transmit(void);
 static int (*rx_callback)(void*, int, uint16_t, uint16_t, uint16_t);
 static int set_callback = 0;
 
@@ -84,7 +84,7 @@ int rf233_pending_packet(void);
 
 
 // Used for debugging output
-char* state_str(uint8_t state) {
+static const char* state_str(uint8_t state) {
   switch (state) {
   case STATE_P_ON:
     return "STATE_POWER_ON";
@@ -121,7 +121,7 @@ char* state_str(uint8_t state) {
 // Section 9.8 of the RF233 manual suggests recalibrating filters at
 // least every 5 minutes of operation. Transitioning out of sleep
 // resets the filters automatically.
-void calibrate_filters() {
+static void calibrate_filters() {
   PRINTF("RF233: Calibrating filters.\n");
   trx_reg_write(RF233_REG_FTN_CTRL, 0x80);
   while (trx_reg_read(RF233_REG_FTN_CTRL) & 0x80);
@@ -130,11 +130,11 @@ void calibrate_filters() {
 uint8_t recv_data[PACKETBUF_SIZE];
 uint8_t packetbuf[PACKETBUF_SIZE];
 
-void* packetbuf_dataptr() {
+static void* packetbuf_dataptr() {
   return (void*)packetbuf;
 }
 
-void packetbuf_clear() {
+static void packetbuf_clear() {
   int* ptr = (int*)packetbuf;
   for (int i = 0; i <  PACKETBUF_SIZE / 4; i++) {
     *ptr++ = 0x00000000;
@@ -142,12 +142,12 @@ void packetbuf_clear() {
 }
 
 uint8_t trx_reg_read(uint8_t addr) {
-	uint8_t command = addr | READ_ACCESS_COMMAND;
+        uint8_t command = addr | READ_ACCESS_COMMAND;
         char buf[2];
         buf[0] = command;
         buf[1] = 0;
         spi_read_write_sync(buf, buf, 2);
-	return buf[1];
+        return buf[1];
 }
 
 uint8_t trx_bit_read(uint8_t addr, uint8_t mask, uint8_t pos) {
@@ -168,9 +168,9 @@ void trx_reg_write(uint8_t addr, uint8_t data) {
 }
 
 void trx_bit_write(uint8_t reg_addr,
-		   uint8_t mask,
-		   uint8_t pos,
-		   uint8_t new_value) {
+                   uint8_t mask,
+                   uint8_t pos,
+                   uint8_t new_value) {
         uint8_t current_reg_value;
         current_reg_value = trx_reg_read(reg_addr);
         current_reg_value &= ~mask;
@@ -224,7 +224,7 @@ void trx_frame_write(uint8_t *data, uint8_t length) {
  * \return     The radio channel
  */
 int rf_get_channel(void) {
-	uint8_t channel;
+        uint8_t channel;
   channel=trx_reg_read(RF233_REG_PHY_CC_CCA) & PHY_CC_CCA_CHANNEL;
   //printf("rf233 channel%d\n",channel);
   return (int)channel;
@@ -281,7 +281,7 @@ static bool radio_pll;
 static bool radio_tx;
 static bool radio_rx;
 
-void interrupt_callback() {
+static void interrupt_callback() {
   volatile uint8_t irq_source;
   PRINTF("RF233: interrupt handler.\n");
   /* handle IRQ source (for what IRQs are enabled, see rf233-config.h) */
@@ -336,6 +336,10 @@ int rf233_init(uint16_t channel, uint16_t from_addr, uint16_t pan_id) {
   radio_header.fcf = 0xAA61; // TODO verify
   radio_header.src = from_addr;
   radio_header.pan = pan_id;
+  spi_set_chip_select(1);
+  spi_set_rate(1000000);
+  spi_set_phase(0);
+  spi_set_polarity(0);
   return rf233_setup();
 }
 
@@ -409,7 +413,7 @@ int rf233_setup(void) {
   PRINTF("RF233: After wake from sleep\n");
   radio_state = rf233_status();
   PRINTF("RF233: Radio state 0x%04x\n", radio_state);
-  calibrate_filters();
+  //calibrate_filters();
   if (radio_state == STATE_P_ON) {
     trx_reg_write(RF233_REG_TRX_STATE, TRXCMD_TRX_OFF);
   }
@@ -553,7 +557,7 @@ int rf233_prepare(const void *payload, unsigned short payload_len) {
  * \param payload_len    Length of the frame to send
  * \return     Returns success/fail, refer to radio.h for explanation
  */
-int rf233_transmit() {
+static int rf233_transmit() {
   static uint8_t status_now;
 
   status_now = rf233_status();
@@ -745,25 +749,25 @@ int rf233_off(void) {
 }
 
 void SetIEEEAddr(uint8_t *ieee_addr) {
-	uint8_t *ptr_to_reg = ieee_addr;
-	//for (uint8_t i = 0; i < 8; i++) {
-		trx_reg_write((0x2b), *ptr_to_reg);
-		ptr_to_reg++;
-		trx_reg_write((0x2a), *ptr_to_reg);
-		ptr_to_reg++;
-		trx_reg_write((0x29), *ptr_to_reg);
-		ptr_to_reg++;
-		trx_reg_write((0x28), *ptr_to_reg);
-		ptr_to_reg++;
-		trx_reg_write((0x27), *ptr_to_reg);
-		ptr_to_reg++;
-		trx_reg_write((0x26), *ptr_to_reg);
-		ptr_to_reg++;
-		trx_reg_write((0x25), *ptr_to_reg);
-		ptr_to_reg++;
-		trx_reg_write((0x24), *ptr_to_reg);
-		ptr_to_reg++;
-	//}
+        uint8_t *ptr_to_reg = ieee_addr;
+        //for (uint8_t i = 0; i < 8; i++) {
+                trx_reg_write((0x2b), *ptr_to_reg);
+                ptr_to_reg++;
+                trx_reg_write((0x2a), *ptr_to_reg);
+                ptr_to_reg++;
+                trx_reg_write((0x29), *ptr_to_reg);
+                ptr_to_reg++;
+                trx_reg_write((0x28), *ptr_to_reg);
+                ptr_to_reg++;
+                trx_reg_write((0x27), *ptr_to_reg);
+                ptr_to_reg++;
+                trx_reg_write((0x26), *ptr_to_reg);
+                ptr_to_reg++;
+                trx_reg_write((0x25), *ptr_to_reg);
+                ptr_to_reg++;
+                trx_reg_write((0x24), *ptr_to_reg);
+                ptr_to_reg++;
+        //}
 }
 
 void SetPanId(uint16_t panId) {

@@ -1,10 +1,10 @@
 #![no_std]
 #![no_main]
-#![feature(const_fn,lang_items)]
+#![feature(asm,const_fn,lang_items)]
 
 extern crate capsules;
 extern crate cortexm4;
-#[macro_use(static_init)]
+#[macro_use(debug, static_init)]
 extern crate kernel;
 extern crate sam4l;
 
@@ -23,9 +23,11 @@ use sam4l::usart;
 
 #[macro_use]
 pub mod io;
+#[allow(dead_code)]
+mod test_take_map_cell;
 
-static mut spi_read_buf: [u8; 64] = [0; 64];
-static mut spi_write_buf: [u8; 64] = [0; 64];
+static mut SPI_READ_BUF: [u8; 64] = [0; 64];
+static mut SPI_WRITE_BUF: [u8; 64] = [0; 64];
 
 unsafe fn load_processes() -> &'static mut [Option<kernel::process::Process<'static>>] {
     extern "C" {
@@ -44,7 +46,7 @@ unsafe fn load_processes() -> &'static mut [Option<kernel::process::Process<'sta
     static mut APP_MEMORY: [u8; 45056] = [0; 45056];
 
 
-    static mut processes: [Option<kernel::process::Process<'static>>; NUM_PROCS] = [None, None];
+    static mut PROCESSES: [Option<kernel::process::Process<'static>>; NUM_PROCS] = [None, None];
 
     let mut apps_in_flash_ptr = &_sapps as *const u8;
     let mut app_memory_ptr = APP_MEMORY.as_mut_ptr();
@@ -60,13 +62,13 @@ unsafe fn load_processes() -> &'static mut [Option<kernel::process::Process<'sta
             break;
         }
 
-        processes[i] = process;
+        PROCESSES[i] = process;
         apps_in_flash_ptr = apps_in_flash_ptr.offset(flash_offset as isize);
         app_memory_ptr = app_memory_ptr.offset(memory_offset as isize);
         app_memory_size -= memory_offset;
     }
 
-    &mut processes
+    &mut PROCESSES
 }
 
 struct Hail {
@@ -123,20 +125,20 @@ unsafe fn set_pin_primary_functions() {
     PA[04].configure(Some(A)); // A0 - ADC0
     PA[05].configure(Some(A)); // A1 - ADC1
     PA[06].configure(Some(A)); // DAC
-    PA[07].configure(None);    // WKP - Wakeup
+    PA[07].configure(None); //... WKP - Wakeup
     PA[08].configure(Some(A)); // FTDI_RTS - USART0 RTS
-    PA[09].configure(None);    // ACC_INT1 - FXOS8700CQ Interrupt 1
-    PA[10].configure(None);    // unused
+    PA[09].configure(None); //... ACC_INT1 - FXOS8700CQ Interrupt 1
+    PA[10].configure(None); //... unused
     PA[11].configure(Some(A)); // FTDI_OUT - USART0 RX FTDI->SAM4L
     PA[12].configure(Some(A)); // FTDI_IN - USART0 TX SAM4L->FTDI
-    PA[13].configure(None);    // RED_LED
-    PA[14].configure(None);    // BLUE_LED
-    PA[15].configure(None);    // GREEN_LED
-    PA[16].configure(None);    // BUTTON - User Button
-    PA[17].configure(None);    // !NRF_RESET - Reset line for nRF51822
-    PA[18].configure(None);    // ACC_INT2 - FXOS8700CQ Interrupt 2
-    PA[19].configure(None);    // unused
-    PA[20].configure(None);    // !LIGHT_INT - ISL29035 Light Sensor Interrupt
+    PA[13].configure(None); //... RED_LED
+    PA[14].configure(None); //... BLUE_LED
+    PA[15].configure(None); //... GREEN_LED
+    PA[16].configure(None); //... BUTTON - User Button
+    PA[17].configure(None); //... !NRF_RESET - Reset line for nRF51822
+    PA[18].configure(None); //... ACC_INT2 - FXOS8700CQ Interrupt 2
+    PA[19].configure(None); //... unused
+    PA[20].configure(None); //... !LIGHT_INT - ISL29035 Light Sensor Interrupt
     // SPI Mode
     PA[21].configure(Some(A)); // D3 - SPI MISO
     PA[22].configure(Some(A)); // D2 - SPI MOSI
@@ -159,14 +161,14 @@ unsafe fn set_pin_primary_functions() {
     PB[05].configure(Some(A)); // A5 - ADC6
     PB[06].configure(Some(A)); // NRF_CTS - USART3 RTS
     PB[07].configure(Some(A)); // NRF_RTS - USART3 CTS
-    PB[08].configure(None);    // NRF_INT - Interrupt line nRF->SAM4L
+    PB[08].configure(None); //... NRF_INT - Interrupt line nRF->SAM4L
     PB[09].configure(Some(A)); // NRF_OUT - USART3 RXD
     PB[10].configure(Some(A)); // NRF_IN - USART3 TXD
-    PB[11].configure(None);    // D6
-    PB[12].configure(None);    // D7
-    PB[13].configure(None);    // unused
-    PB[14].configure(None);    // D0
-    PB[15].configure(None);    // D1
+    PB[11].configure(None); //... D6
+    PB[12].configure(None); //... D7
+    PB[13].configure(None); //... unused
+    PB[14].configure(None); //... D0
+    PB[15].configure(None); //... D1
 }
 
 #[no_mangle]
@@ -225,7 +227,7 @@ pub unsafe fn reset_handler() {
         capsules::si7021::SI7021::new(si7021_i2c,
             si7021_virtual_alarm,
             &mut capsules::si7021::BUFFER),
-        288/8);
+        352/8);
     si7021_i2c.set_client(si7021);
     si7021_virtual_alarm.set_client(si7021);
 
@@ -239,7 +241,7 @@ pub unsafe fn reset_handler() {
         capsules::isl29035::Isl29035<'static, VirtualMuxAlarm<'static, sam4l::ast::Ast>>,
         capsules::isl29035::Isl29035::new(isl29035_i2c, isl29035_virtual_alarm,
                                           &mut capsules::isl29035::BUF),
-        320/8);
+        384/8);
     isl29035_i2c.set_client(isl29035);
     isl29035_virtual_alarm.set_client(isl29035);
 
@@ -259,7 +261,7 @@ pub unsafe fn reset_handler() {
     let fxos8700 = static_init!(
         capsules::fxos8700_cq::Fxos8700cq<'static>,
         capsules::fxos8700_cq::Fxos8700cq::new(fxos8700_i2c, &mut capsules::fxos8700_cq::BUF),
-        288/8);
+        352/8);
     fxos8700_i2c.set_client(fxos8700);
 
     // Initialize and enable SPI HAL
@@ -278,7 +280,7 @@ pub unsafe fn reset_handler() {
     let syscall_spi_device = static_init!(
         VirtualSpiMasterDevice<'static, sam4l::spi::Spi>,
         VirtualSpiMasterDevice::new(mux_spi, 0),
-        384/8);
+        352/8);
 
     // Create the SPI systemc call capsule, passing the client
     let spi_syscalls = static_init!(
@@ -286,7 +288,7 @@ pub unsafe fn reset_handler() {
         capsules::spi::Spi::new(syscall_spi_device),
         672/8);
 
-    spi_syscalls.config_buffers(&mut spi_read_buf, &mut spi_write_buf);
+    spi_syscalls.config_buffers(&mut SPI_READ_BUF, &mut SPI_WRITE_BUF);
     syscall_spi_device.set_client(spi_syscalls);
 
     // LEDs
@@ -318,7 +320,7 @@ pub unsafe fn reset_handler() {
     let adc = static_init!(
         capsules::adc::ADC<'static, sam4l::adc::Adc>,
         capsules::adc::ADC::new(&mut sam4l::adc::ADC),
-        160/8);
+        224/8);
     sam4l::adc::ADC.set_client(adc);
 
     // Setup RNG
@@ -341,10 +343,12 @@ pub unsafe fn reset_handler() {
     let gpio = static_init!(
         capsules::gpio::GPIO<'static, sam4l::gpio::GPIOPin>,
         capsules::gpio::GPIO::new(gpio_pins),
-        20);
+        224/8);
     for pin in gpio_pins.iter() {
         pin.set_client(gpio);
     }
+
+
 
     let hail = Hail {
         console: console,
@@ -369,11 +373,22 @@ pub unsafe fn reset_handler() {
     sam4l::gpio::PA[17].set();
 
     hail.console.initialize();
+    // Attach the kernel debug interface to this console
+    let kc = static_init!(
+        capsules::console::App,
+        capsules::console::App::default(),
+        480/8);
+    kernel::debug::assign_console_driver(Some(hail.console), kc);
+
     hail.nrf51822.initialize();
 
     let mut chip = sam4l::chip::Sam4l::new();
     // duktape Disable the MPU, see https://www.terraswarm.org/accessors/wiki/TockOS/HailSize#DisableMPU
     //chip.mpu().enable_mpu();
 
+    // Uncomment to measure overheads for TakeCell and MapCell:
+    // test_take_map_cell::test_take_map_cell();
+
+    debug!("Initialization complete. Entering main loop");
     kernel::main(&hail, &mut chip, load_processes(), &hail.ipc);
 }

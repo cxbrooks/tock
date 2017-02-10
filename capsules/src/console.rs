@@ -3,11 +3,11 @@
 //! Console provides userspace with the ability to print text via a serial
 //! interface.
 
-use kernel::{AppId, AppSlice, Container, Callback, Shared, Driver};
+use core::cell::Cell;
+use kernel::{AppId, AppSlice, Container, Callback, Shared, Driver, ReturnCode};
 use kernel::common::take_cell::TakeCell;
 use kernel::hil::uart::{self, UART, Client};
 use kernel::process::Error;
-use kernel::returncode::ReturnCode;
 
 pub struct App {
     write_callback: Option<Callback>,
@@ -38,8 +38,8 @@ pub static mut WRITE_BUF: [u8; 64] = [0; 64];
 pub struct Console<'a, U: UART + 'a> {
     uart: &'a U,
     apps: Container<App>,
-    in_progress: TakeCell<AppId>,
-    tx_buffer: TakeCell<&'static mut [u8]>,
+    in_progress: Cell<Option<AppId>>,
+    tx_buffer: TakeCell<'static, [u8]>,
     baud_rate: u32,
 }
 
@@ -52,7 +52,7 @@ impl<'a, U: UART> Console<'a, U> {
         Console {
             uart: uart,
             apps: container,
-            in_progress: TakeCell::empty(),
+            in_progress: Cell::new(None),
             tx_buffer: TakeCell::new(tx_buffer),
             baud_rate: baud_rate,
         }
@@ -66,6 +66,70 @@ impl<'a, U: UART> Console<'a, U> {
             hw_flow_control: false,
         });
     }
+
+    /// Internal helper function for setting up a new send transaction
+    fn send_new(&self, app_id: AppId, app: &mut App, callback: Callback) -> ReturnCode {
+        match app.write_buffer.take() {
+            Some(slice) => {
+                app.write_len = slice.len();
+                app.write_remaining = app.write_len;
+                app.write_callback = Some(callback);
+                self.send(app_id, app, slice);
+                ReturnCode::SUCCESS
+            }
+            None => ReturnCode::EBUSY,
+        }
+    }
+
+    /// Internal helper function for continuing a previously set up transaction
+    /// Returns true if this send is still active, or false if it has completed
+    fn send_continue(&self, app_id: AppId, app: &mut App) -> Result<bool, ReturnCode> {
+        if app.write_remaining > 0 {
+            match app.write_buffer.take() {
+                Some(slice) => {
+                    self.send(app_id, app, slice);
+                    Ok(true)
+                }
+                None => Err(ReturnCode::FAIL),
+            }
+        } else {
+            Ok(false)
+        }
+    }
+
+    /// Internal helper function for sending data for an existing transaction.
+    /// Cannot fail. If can't send now, it will schedule for sending later.
+    fn send(&self, app_id: AppId, app: &mut App, slice: AppSlice<Shared, u8>) {
+        if self.in_progress.get().is_none() {
+            self.in_progress.set(Some(app_id));
+            self.tx_buffer.take().map(|buffer| {
+                let mut transaction_len = app.write_remaining;
+                for (i, c) in slice.as_ref()[slice.len() - app.write_remaining..slice.len()]
+                    .iter()
+                    .enumerate() {
+                    if buffer.len() <= i {
+                        break;
+                    }
+                    buffer[i] = *c;
+                }
+
+                // Check if everything we wanted to print
+                // fit in the buffer.
+                if app.write_remaining > buffer.len() {
+                    transaction_len = buffer.len();
+                    app.write_remaining -= buffer.len();
+                    app.write_buffer = Some(slice);
+                } else {
+                    app.write_remaining = 0;
+                }
+
+                self.uart.transmit(buffer, transaction_len);
+            });
+        } else {
+            app.pending_write = true;
+            app.write_buffer = Some(slice);
+        }
+    }
 }
 
 impl<'a, U: UART> Driver for Console<'a, U> {
@@ -78,12 +142,10 @@ impl<'a, U: UART> Driver for Console<'a, U> {
                         app.read_idx = 0;
                         ReturnCode::SUCCESS
                     })
-                    .unwrap_or_else(|err| {
-                        match err {
-                            Error::OutOfMemory => ReturnCode::ENOMEM,
-                            Error::AddressOutOfBounds => ReturnCode::EINVAL,
-                            Error::NoSuchApp => ReturnCode::EINVAL,
-                        }
+                    .unwrap_or_else(|err| match err {
+                        Error::OutOfMemory => ReturnCode::ENOMEM,
+                        Error::AddressOutOfBounds => ReturnCode::EINVAL,
+                        Error::NoSuchApp => ReturnCode::EINVAL,
                     })
             }
             1 => {
@@ -92,12 +154,10 @@ impl<'a, U: UART> Driver for Console<'a, U> {
                         app.write_buffer = Some(slice);
                         ReturnCode::SUCCESS
                     })
-                    .unwrap_or_else(|err| {
-                        match err {
-                            Error::OutOfMemory => ReturnCode::ENOMEM,
-                            Error::AddressOutOfBounds => ReturnCode::EINVAL,
-                            Error::NoSuchApp => ReturnCode::EINVAL,
-                        }
+                    .unwrap_or_else(|err| match err {
+                        Error::OutOfMemory => ReturnCode::ENOMEM,
+                        Error::AddressOutOfBounds => ReturnCode::EINVAL,
+                        Error::NoSuchApp => ReturnCode::EINVAL,
                     })
             }
             _ => ReturnCode::ENOSUPPORT,
@@ -112,41 +172,7 @@ impl<'a, U: UART> Driver for Console<'a, U> {
             },
             1 /* putstr/write_done */ => {
                 self.apps.enter(callback.app_id(), |app, _| {
-                    match app.write_buffer.take() {
-                        Some(slice) => {
-                            app.write_callback = Some(callback);
-                            app.write_len = slice.len();
-                            app.write_remaining = 0;
-                            if self.in_progress.is_none() {
-                                self.in_progress.replace(callback.app_id());
-                                self.tx_buffer.take().map(|buffer| {
-                                    for (i, c) in slice.as_ref().iter().enumerate() {
-                                        if buffer.len() <= i {
-                                            break;
-                                        }
-                                        buffer[i] = *c;
-                                    }
-
-                                    // Check if everything we wanted to print
-                                    // fit in the buffer.
-                                    if slice.len() > buffer.len() {
-                                        app.write_len = buffer.len();
-                                        app.write_remaining = slice.len() - buffer.len();
-                                        app.write_buffer = Some(slice);
-                                    }
-
-                                    self.uart.transmit(buffer, app.write_len);
-                                });
-                            } else {
-                                app.pending_write = true;
-                                app.write_buffer = Some(slice);
-                            }
-                            ReturnCode::SUCCESS
-                        },
-                        None => ReturnCode::FAIL
-                        // XXX  ^^^^^^^^^^^^^^^^-- When can we fail to take the write_buffer
-                        //                         which return code is best here?
-                    }
+                    self.send_new(callback.app_id(), app, callback)
                 }).unwrap_or_else(|err| {
                     match err {
                         Error::OutOfMemory => ReturnCode::ENOMEM,
@@ -179,84 +205,48 @@ impl<'a, U: UART> Client for Console<'a, U> {
         // Either print more from the AppSlice or send a callback to the
         // application.
         self.tx_buffer.replace(buffer);
-        self.in_progress.take().map(|appid| {
+        self.in_progress.get().map(|appid| {
+            self.in_progress.set(None);
             self.apps.enter(appid, |app, _| {
-                // Check to see if we have more to write that didn't fit in our
-                // buffer.
-                if app.write_remaining > 0 {
-                    match app.write_buffer.take() {
-                        Some(slice) => {
-                            app.write_len = app.write_remaining;
-                            self.in_progress.replace(appid);
-                            self.tx_buffer.take().map(|buffer| {
-                                for (i, c) in
-                                    slice.as_ref()[slice.len() - app.write_remaining..slice.len()]
-                                        .iter()
-                                        .enumerate() {
-                                    if buffer.len() <= i {
-                                        break;
-                                    }
-                                    buffer[i] = *c;
-                                }
-
-                                // Check to see if we need to keep going.
-                                if app.write_remaining > buffer.len() {
-                                    app.write_len = buffer.len();
-                                    app.write_remaining = app.write_remaining - buffer.len();
-                                    app.write_buffer = Some(slice);
-                                } else {
-                                    app.write_remaining = 0;
-                                }
-
-                                self.uart.transmit(buffer, app.write_len);
-                            });
-                            0
+                match self.send_continue(appid, app) {
+                    Ok(more_to_send) => {
+                        if !more_to_send {
+                            // Go ahead and signal the application
+                            let written = app.write_len;
+                            app.write_len = 0;
+                            app.write_callback.map(|mut cb| { cb.schedule(written, 0, 0); });
                         }
-                        None => -1,
-                    };
-
-                } else {
-                    // Go ahead and signal the application
-                    app.write_callback.map(|mut cb| {
-                        cb.schedule(app.write_len, 0, 0);
-                    });
-                    app.write_len = 0;
+                    }
+                    Err(return_code) => {
+                        // XXX This shouldn't ever happen?
+                        app.write_len = 0;
+                        app.write_remaining = 0;
+                        app.pending_write = false;
+                        let r0 = isize::from(return_code) as usize;
+                        app.write_callback.map(|mut cb| { cb.schedule(r0, 0, 0); });
+                    }
                 }
             })
         });
 
         // If we are not printing more from the current AppSlice,
         // see if any other applications have pending messages.
-        if self.in_progress.is_none() {
+        if self.in_progress.get().is_none() {
             for cntr in self.apps.iter() {
                 let started_tx = cntr.enter(|app, _| {
                     if app.pending_write {
                         app.pending_write = false;
-                        match app.write_buffer.take() {
-                            Some(slice) => {
+                        match self.send_continue(app.appid(), app) {
+                            Ok(more_to_send) => more_to_send,
+                            Err(return_code) => {
+                                // XXX This shouldn't ever happen?
+                                app.write_len = 0;
                                 app.write_remaining = 0;
-                                self.in_progress.replace(app.appid());
-                                self.tx_buffer.take().map(|buffer| {
-                                    for (i, c) in slice.as_ref().iter().enumerate() {
-                                        if buffer.len() <= i {
-                                            break;
-                                        }
-                                        buffer[i] = *c;
-                                    }
-
-                                    // Check if everything we wanted to print
-                                    // fit in the buffer.
-                                    if slice.len() > buffer.len() {
-                                        app.write_len = buffer.len();
-                                        app.write_remaining = slice.len() - buffer.len();
-                                        app.write_buffer = Some(slice);
-                                    }
-
-                                    self.uart.transmit(buffer, app.write_len);
-                                });
-                                true
+                                app.pending_write = false;
+                                let r0 = isize::from(return_code) as usize;
+                                app.write_callback.map(|mut cb| { cb.schedule(r0, 0, 0); });
+                                false
                             }
-                            None => false,
                         }
                     } else {
                         false

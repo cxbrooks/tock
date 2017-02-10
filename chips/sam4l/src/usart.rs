@@ -2,7 +2,6 @@ use core::cell::Cell;
 use core::cmp;
 use core::mem;
 use dma;
-use kernel::common::take_cell::TakeCell;
 use kernel::common::volatile_cell::VolatileCell;
 // other modules
 use kernel::hil;
@@ -67,6 +66,7 @@ enum UsartMode {
     Unused,
 }
 
+#[derive(Copy,Clone)]
 enum UsartClient<'a> {
     Uart(&'a hil::uart::Client),
     SpiMaster(&'a hil::spi::SpiMasterClient),
@@ -82,14 +82,14 @@ pub struct USART {
     usart_tx_state: Cell<USARTStateTX>,
     usart_rx_state: Cell<USARTStateRX>,
 
-    rx_dma: TakeCell<&'static dma::DMAChannel>,
+    rx_dma: Cell<Option<&'static dma::DMAChannel>>,
     rx_dma_peripheral: dma::DMAPeripheral,
     rx_len: Cell<usize>,
-    tx_dma: TakeCell<&'static dma::DMAChannel>,
+    tx_dma: Cell<Option<&'static dma::DMAChannel>>,
     tx_dma_peripheral: dma::DMAPeripheral,
     tx_len: Cell<usize>,
 
-    client: TakeCell<UsartClient<'static>>,
+    client: Cell<Option<UsartClient<'static>>>,
 
     spi_chip_select: Cell<Option<&'static hil::gpio::Pin>>,
 }
@@ -134,15 +134,15 @@ impl USART {
             usart_tx_state: Cell::new(USARTStateTX::Idle),
 
             // these get defined later by `chip.rs`
-            rx_dma: TakeCell::empty(),
+            rx_dma: Cell::new(None),
             rx_dma_peripheral: rx_dma_peripheral,
             rx_len: Cell::new(0),
-            tx_dma: TakeCell::empty(),
+            tx_dma: Cell::new(None),
             tx_dma_peripheral: tx_dma_peripheral,
             tx_len: Cell::new(0),
 
             // this gets defined later by `main.rs`
-            client: TakeCell::empty(),
+            client: Cell::new(None),
 
             // This is only used if the USART is in SPI mode.
             spi_chip_select: Cell::new(None),
@@ -150,8 +150,8 @@ impl USART {
     }
 
     pub fn set_dma(&self, rx_dma: &'static dma::DMAChannel, tx_dma: &'static dma::DMAChannel) {
-        self.rx_dma.replace(rx_dma);
-        self.tx_dma.replace(tx_dma);
+        self.rx_dma.set(Some(rx_dma));
+        self.tx_dma.set(Some(tx_dma));
     }
 
     pub fn enable_rx(&self) {
@@ -190,7 +190,7 @@ impl USART {
 
             // get buffer
             let mut length = 0;
-            let buffer = self.rx_dma.map_or(None, |rx_dma| {
+            let buffer = self.rx_dma.get().map_or(None, |rx_dma| {
                 length = self.rx_len.get() - rx_dma.transfer_counter();
                 let buf = rx_dma.abort_xfer();
                 rx_dma.disable();
@@ -199,14 +199,12 @@ impl USART {
             self.rx_len.set(0);
 
             // alert client
-            self.client.map(|usartclient| {
-                buffer.map(|buf| {
-                    match usartclient {
-                        &mut UsartClient::Uart(client) => {
-                            client.receive_complete(buf, length, error);
-                        }
-                        &mut UsartClient::SpiMaster(_) => {}
+            self.client.get().map(|usartclient| {
+                buffer.map(|buf| match usartclient {
+                    UsartClient::Uart(client) => {
+                        client.receive_complete(buf, length, error);
                     }
+                    UsartClient::SpiMaster(_) => {}
                 });
             });
         }
@@ -220,7 +218,7 @@ impl USART {
 
             // get buffer
             let mut length = 0;
-            let buffer = self.tx_dma.map_or(None, |tx_dma| {
+            let buffer = self.tx_dma.get().map_or(None, |tx_dma| {
                 length = self.tx_len.get() - tx_dma.transfer_counter();
                 let buf = tx_dma.abort_xfer();
                 tx_dma.disable();
@@ -229,14 +227,12 @@ impl USART {
             self.tx_len.set(0);
 
             // alert client
-            self.client.map(|usartclient| {
-                buffer.map(|buf| {
-                    match usartclient {
-                        &mut UsartClient::Uart(client) => {
-                            client.receive_complete(buf, length, error);
-                        }
-                        &mut UsartClient::SpiMaster(_) => {}
+            self.client.get().map(|usartclient| {
+                buffer.map(|buf| match usartclient {
+                    UsartClient::Uart(client) => {
+                        client.receive_complete(buf, length, error);
                     }
+                    UsartClient::SpiMaster(_) => {}
                 });
             });
         }
@@ -248,7 +244,7 @@ impl USART {
         let ier_val = 0x00000000 |
             (1 <<  7) | // PARE
             (1 <<  6) | // FRAME
-            (1 <<  5);  // OVRE
+            (1 <<  5); //. OVRE
         regs.ier.set(ier_val);
     }
 
@@ -260,7 +256,7 @@ impl USART {
             (1 <<  7) | // PARE
             (1 <<  6) | // FRAME
             (1 <<  5) | // OVRE
-            (1 << 1);   // RXRDY
+            (1 << 1); //.. RXRDY
         regs.idr.set(idr_val);
 
         // XXX: disable nvic if no interrupts are enabled
@@ -270,7 +266,7 @@ impl USART {
         let regs: &mut USARTRegisters = unsafe { mem::transmute(self.registers) };
         let idr_val = 0x00000000 |
             (1 << 9) | // TXEMPTY
-            (1 << 1);  // TXREADY
+            (1 << 1); //. TXREADY
         regs.idr.set(idr_val);
 
         // XXX: disable nvic if no interrupts are enabled
@@ -289,7 +285,7 @@ impl USART {
         let cr_val = 0x00000000 |
             (1 << 8) | // RSTSTA
             (1 << 3) | // RSTTX
-            (1 <<2);   // RSTRX
+            (1 <<2); //.. RSTRX
         regs.cr.set(cr_val);
 
         self.abort_rx(hil::uart::Error::ResetError);
@@ -438,23 +434,23 @@ impl dma::DMAClient for USART {
                     self.usart_rx_state.set(USARTStateRX::Idle);
 
                     // get buffer
-                    let buffer = self.rx_dma.map_or(None, |rx_dma| {
+                    let buffer = self.rx_dma.get().map_or(None, |rx_dma| {
                         let buf = rx_dma.abort_xfer();
                         rx_dma.disable();
                         buf
                     });
 
                     // alert client
-                    self.client.map(|usartclient| {
+                    self.client.get().map(|usartclient| {
                         buffer.map(|buf| {
                             let length = self.rx_len.get();
                             match usartclient {
-                                &mut UsartClient::Uart(client) => {
+                                UsartClient::Uart(client) => {
                                     client.receive_complete(buf,
                                                             length,
                                                             hil::uart::Error::CommandComplete);
                                 }
-                                &mut UsartClient::SpiMaster(_) => {}
+                                UsartClient::SpiMaster(_) => {}
                             }
                         });
                     });
@@ -467,22 +463,19 @@ impl dma::DMAClient for USART {
                     self.usart_tx_state.set(USARTStateTX::Transfer_Completing);
 
                     // get buffer
-                    let buffer = self.tx_dma.map_or(None, |tx_dma| {
+                    let buffer = self.tx_dma.get().map_or(None, |tx_dma| {
                         let buf = tx_dma.abort_xfer();
                         tx_dma.disable();
                         buf
                     });
 
                     // alert client
-                    self.client.map(|usartclient| {
-                        buffer.map(|buf| {
-                            match usartclient {
-                                &mut UsartClient::Uart(client) => {
-                                    client.transmit_complete(buf,
-                                                             hil::uart::Error::CommandComplete);
-                                }
-                                &mut UsartClient::SpiMaster(_) => {}
+                    self.client.get().map(|usartclient| {
+                        buffer.map(|buf| match usartclient {
+                            UsartClient::Uart(client) => {
+                                client.transmit_complete(buf, hil::uart::Error::CommandComplete);
                             }
+                            UsartClient::SpiMaster(_) => {}
                         });
                     });
                     self.tx_len.set(0);
@@ -490,8 +483,10 @@ impl dma::DMAClient for USART {
             }
 
             UsartMode::Spi => {
-                if pid == self.tx_dma_peripheral {
-                    // TX transfer was completed
+                if (self.usart_rx_state.get() == USARTStateRX::Idle &&
+                    pid == self.tx_dma_peripheral) ||
+                   pid == self.rx_dma_peripheral {
+                    // SPI transfer was completed
 
                     self.spi_chip_select.get().map_or_else(|| {
                         // Do "else" case first. Thanks, rust.
@@ -502,15 +497,16 @@ impl dma::DMAClient for USART {
 
                     // note that the DMA has finished but TX cannot be disabled yet
                     self.usart_tx_state.set(USARTStateTX::Transfer_Completing);
+                    self.usart_rx_state.set(USARTStateRX::Idle);
 
                     // get buffer
-                    let txbuf = self.tx_dma.map_or(None, |dma| {
+                    let txbuf = self.tx_dma.get().map_or(None, |dma| {
                         let buf = dma.abort_xfer();
                         dma.disable();
                         buf
                     });
 
-                    let rxbuf = self.rx_dma.map_or(None, |dma| {
+                    let rxbuf = self.rx_dma.get().map_or(None, |dma| {
                         let buf = dma.abort_xfer();
                         dma.disable();
                         buf
@@ -519,13 +515,11 @@ impl dma::DMAClient for USART {
                     let len = self.tx_len.get();
 
                     // alert client
-                    self.client.map(|usartclient| {
-                        txbuf.map(|tbuf| {
-                            match usartclient {
-                                &mut UsartClient::Uart(_) => {}
-                                &mut UsartClient::SpiMaster(client) => {
-                                    client.read_write_done(tbuf, rxbuf, len);
-                                }
+                    self.client.get().map(|usartclient| {
+                        txbuf.map(|tbuf| match usartclient {
+                            UsartClient::Uart(_) => {}
+                            UsartClient::SpiMaster(client) => {
+                                client.read_write_done(tbuf, rxbuf, len);
                             }
                         });
                     });
@@ -542,7 +536,7 @@ impl dma::DMAClient for USART {
 impl hil::uart::UART for USART {
     fn set_client(&self, client: &'static hil::uart::Client) {
         let c = UsartClient::Uart(client);
-        self.client.replace(c);
+        self.client.set(Some(c));
     }
 
     fn init(&self, params: hil::uart::UARTParams) {
@@ -561,8 +555,8 @@ impl hil::uart::UART for USART {
         // set USART mode register
         let mut mode = 0x00000000;
         mode |= 0x1 << 19; // OVER: oversample at 8 times baud rate
-        mode |= 0x3 << 6;  // CHRL: 8-bit characters
-        mode |= 0x0 << 4;  // USCLKS: select CLK_USART
+        mode |= 0x3 << 6; // CHRL: 8-bit characters
+        mode |= 0x0 << 4; // USCLKS: select CLK_USART
 
         match params.stop_bits {
             hil::uart::StopBits::One => mode |= 0x0 << 12, // NBSTOP: 1 stop bit
@@ -576,9 +570,9 @@ impl hil::uart::UART for USART {
         };
 
         if params.hw_flow_control {
-            mode |= 0x2 << 0;  // MODE: hardware handshaking
+            mode |= 0x2 << 0; // MODE: hardware handshaking
         } else {
-            mode |= 0x0 << 0;  // MODE: normal
+            mode |= 0x0 << 0; // MODE: normal
         }
 
         self.set_mode(mode);
@@ -596,7 +590,7 @@ impl hil::uart::UART for USART {
         self.usart_tx_state.set(USARTStateTX::DMA_Transmitting);
 
         // set up dma transfer and start transmission
-        self.tx_dma.map(move |dma| {
+        self.tx_dma.get().map(move |dma| {
             dma.enable();
             dma.do_xfer(self.tx_dma_peripheral, tx_data, tx_len);
             self.tx_len.set(tx_len);
@@ -619,7 +613,7 @@ impl hil::uart::UART for USART {
         self.usart_rx_state.set(USARTStateRX::DMA_Receiving);
 
         // set up dma transfer and start reception
-        self.rx_dma.map(move |dma| {
+        self.rx_dma.get().map(move |dma| {
             dma.enable();
             dma.do_xfer(self.rx_dma_peripheral, rx_buffer, length);
             self.rx_len.set(rx_len);
@@ -641,7 +635,7 @@ impl hil::uart::UARTAdvanced for USART {
         self.usart_rx_state.set(USARTStateRX::DMA_Receiving);
 
         // set up dma transfer and start reception
-        self.rx_dma.map(move |dma| {
+        self.rx_dma.get().map(move |dma| {
             dma.enable();
             let length = rx_buffer.len();
             dma.do_xfer(self.rx_dma_peripheral, rx_buffer, length);
@@ -662,7 +656,7 @@ impl hil::uart::UARTAdvanced for USART {
         self.usart_rx_state.set(USARTStateRX::DMA_Receiving);
 
         // set up dma transfer and start reception
-        self.rx_dma.map(move |dma| {
+        self.rx_dma.get().map(move |dma| {
             dma.enable();
             let length = rx_buffer.len();
             dma.do_xfer(self.rx_dma_peripheral, rx_buffer, length);
@@ -674,7 +668,7 @@ impl hil::uart::UARTAdvanced for USART {
 
 /// SPI
 impl hil::spi::SpiMaster for USART {
-    type ChipSelect = &'static hil::gpio::Pin;
+    type ChipSelect = Option<&'static hil::gpio::Pin>;
 
     fn init(&self) {
         let regs: &mut USARTRegisters = unsafe { mem::transmute(self.registers) };
@@ -700,7 +694,7 @@ impl hil::spi::SpiMaster for USART {
 
     fn set_client(&self, client: &'static hil::spi::SpiMasterClient) {
         let c = UsartClient::SpiMaster(client);
-        self.client.replace(c);
+        self.client.set(Some(c));
     }
 
     fn is_busy(&self) -> bool {
@@ -733,13 +727,16 @@ impl hil::spi::SpiMaster for USART {
         });
 
         // Set up dma transfer and start transmission
-        self.tx_dma.map(move |dma| {
+        self.tx_dma.get().map(move |dma| {
+            self.usart_tx_state.set(USARTStateTX::DMA_Transmitting);
+            self.usart_rx_state.set(USARTStateRX::Idle);
             dma.enable();
             dma.do_xfer(self.tx_dma_peripheral, write_buffer, count);
         });
 
         read_buffer.map(|rbuf| {
-            self.rx_dma.map(move |read| {
+            self.rx_dma.get().map(move |read| {
+                self.usart_rx_state.set(USARTStateRX::DMA_Receiving);
                 read.enable();
                 read.do_xfer(self.rx_dma_peripheral, rbuf, count);
             });
@@ -769,9 +766,9 @@ impl hil::spi::SpiMaster for USART {
         regs.rhr.get() as u8
     }
 
-    /// Don't call this to use the HW chip select pin on the USART (RTS).
+    /// Pass in a None to use the HW chip select pin on the USART (RTS).
     fn specify_chip_select(&self, cs: Self::ChipSelect) {
-        self.spi_chip_select.set(Some(cs));
+        self.spi_chip_select.set(cs);
     }
 
     /// Returns the actual rate set

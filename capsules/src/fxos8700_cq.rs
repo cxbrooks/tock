@@ -4,10 +4,9 @@
 //! To use readings from the sensor in userland, see FXOS8700CQ.h in libtock.
 
 use core::cell::Cell;
-use kernel::{AppId, Callback, Driver};
+use kernel::{AppId, Callback, Driver, ReturnCode};
 use kernel::common::take_cell::TakeCell;
 use kernel::hil::i2c::{I2CDevice, I2CClient, Error};
-use kernel::returncode::ReturnCode;
 
 pub static mut BUF: [u8; 6] = [0; 6];
 
@@ -157,7 +156,7 @@ enum State {
 pub struct Fxos8700cq<'a> {
     i2c: &'a I2CDevice,
     state: Cell<State>,
-    buffer: TakeCell<&'static mut [u8]>,
+    buffer: TakeCell<'static, [u8]>,
     callback: Cell<Option<Callback>>,
 }
 

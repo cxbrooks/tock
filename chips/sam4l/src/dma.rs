@@ -109,7 +109,7 @@ pub enum DMAPeripheral {
     LCDCA_ABMDR_TX = 38,
 }
 
-pub static mut DMAChannels: [DMAChannel; 16] =
+pub static mut DMA_CHANNELS: [DMAChannel; 16] =
     [DMAChannel::new(DMAChannelNum::DMAChannel00, nvic::NvicIdx::PDCA0),
      DMAChannel::new(DMAChannelNum::DMAChannel01, nvic::NvicIdx::PDCA1),
      DMAChannel::new(DMAChannelNum::DMAChannel02, nvic::NvicIdx::PDCA2),
@@ -132,7 +132,7 @@ pub struct DMAChannel {
     nvic: nvic::NvicIdx,
     pub client: Option<&'static mut DMAClient>,
     enabled: Cell<bool>,
-    buffer: TakeCell<&'static mut [u8]>,
+    buffer: TakeCell<'static, [u8]>,
 }
 
 pub trait DMAClient {
@@ -194,9 +194,7 @@ impl DMAChannel {
         let registers: &mut DMARegisters = unsafe { mem::transmute(self.registers) };
         let channel = registers.peripheral_select.get();
 
-        self.client.as_mut().map(|client| {
-            client.xfer_done(channel);
-        });
+        self.client.as_mut().map(|client| { client.xfer_done(channel); });
     }
 
     pub fn start_xfer(&self) {
@@ -252,7 +250,7 @@ macro_rules! pdca_handler {
             $nvic,
             {
                 let registers : &mut DMARegisters =
-                    mem::transmute(DMAChannels[$num].registers);
+                    mem::transmute(DMA_CHANNELS[$num].registers);
                 registers.interrupt_disable.set(0xffffffff);
             });
     }

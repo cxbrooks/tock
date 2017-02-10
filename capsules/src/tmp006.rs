@@ -3,12 +3,11 @@
 //! http://www.ti.com/product/TMP006
 
 use core::cell::Cell;
-use kernel::{AppId, Callback, Driver};
+use kernel::{AppId, Callback, Driver, ReturnCode};
 use kernel::common::math::{sqrtf32, get_errno};
 use kernel::common::take_cell::TakeCell;
 use kernel::hil::gpio::{Pin, InterruptMode, Client};
 use kernel::hil::i2c;
-use kernel::returncode::ReturnCode;
 
 pub static mut BUFFER: [u8; 3] = [0; 3];
 
@@ -94,7 +93,7 @@ pub struct TMP006<'a> {
     repeated_mode: Cell<bool>,
     callback: Cell<Option<Callback>>,
     protocol_state: Cell<ProtocolState>,
-    buffer: TakeCell<&'static mut [u8]>,
+    buffer: TakeCell<'static, [u8]>,
 }
 
 impl<'a> TMP006<'a> {

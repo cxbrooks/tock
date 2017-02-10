@@ -13,12 +13,13 @@ pub struct MuxI2C<'a> {
     i2c: &'a i2c::I2CMaster,
     devices: List<'a, I2CDevice<'a>>,
     enabled: Cell<usize>,
-    inflight: TakeCell<&'a I2CDevice<'a>>,
+    inflight: Cell<Option<&'a I2CDevice<'a>>>,
 }
 
 impl<'a> I2CHwMasterClient for MuxI2C<'a> {
     fn command_complete(&self, buffer: &'static mut [u8], error: Error) {
-        self.inflight.take().map(move |device| {
+        self.inflight.get().map(move |device| {
+            self.inflight.set(None);
             device.command_complete(buffer, error);
         });
         self.do_next_op();
@@ -31,7 +32,7 @@ impl<'a> MuxI2C<'a> {
             i2c: i2c,
             devices: List::new(),
             enabled: Cell::new(0),
-            inflight: TakeCell::empty(),
+            inflight: Cell::new(None),
         }
     }
 
@@ -52,7 +53,7 @@ impl<'a> MuxI2C<'a> {
     }
 
     fn do_next_op(&self) {
-        if self.inflight.is_none() {
+        if self.inflight.get().is_none() {
             let mnode = self.devices.iter().find(|node| node.operation.get() != Op::Idle);
             mnode.map(|node| {
                 node.buffer.take().map(|buf| {
@@ -66,7 +67,7 @@ impl<'a> MuxI2C<'a> {
                     }
                 });
                 node.operation.set(Op::Idle);
-                self.inflight.replace(node);
+                self.inflight.set(Some(node));
             });
         }
     }
@@ -84,7 +85,7 @@ pub struct I2CDevice<'a> {
     mux: &'a MuxI2C<'a>,
     addr: u8,
     enabled: Cell<bool>,
-    buffer: TakeCell<&'static mut [u8]>,
+    buffer: TakeCell<'static, [u8]>,
     operation: Cell<Op>,
     next: ListLink<'a, I2CDevice<'a>>,
     client: Cell<Option<&'a I2CClient>>,
@@ -111,9 +112,7 @@ impl<'a> I2CDevice<'a> {
 
 impl<'a> I2CClient for I2CDevice<'a> {
     fn command_complete(&self, buffer: &'static mut [u8], error: Error) {
-        self.client.get().map(move |client| {
-            client.command_complete(buffer, error);
-        });
+        self.client.get().map(move |client| { client.command_complete(buffer, error); });
     }
 }
 
